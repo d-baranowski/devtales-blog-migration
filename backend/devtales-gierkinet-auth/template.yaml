@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  devtales-gierkinet-auth
+  SAM Template for devtales-gierkinet-auth
+
+
+Parameters:
+  Environment:
+    Type: String
+    Description: "test/prod etc"
+    Default: "prod"
+  Product:
+    Type: String
+    Description: "Name of the Product"
+    Default: "gierkinet"
+  CognitoDomainName:
+    Type: String
+    Description: "Domain name of the site"
+    Default: "login.devtales.net"
+  OauthRedicrectUrl:
+    Type: String
+    Description: "Redirection url for client"
+    Default: "https://games.devtales.net"
+  OauthSslCertArn:
+    Type: String
+    Description: "SSL certu used on cognito domain"
+  OauthGoogleClientId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: gierkinet-prod-ssm-google-id-provider-client-id
+  OauthGoogleClientSecret:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: gierkinet-prod-ssm-google-id-provider-client-secret
+
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${Product}-${Environment}-cognito--user-pool
+
+  UserPoolTokenClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      AllowedOAuthFlows:
+        - implicit
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - phone
+        - email
+        - openid
+        - profile
+      CallbackURLs:
+        - !Sub ${OauthRedicrectUrl}/oauth/login
+        - http://localhost:3000/oauth/login
+      ClientName: !Sub ${Product}-${Environment}-cognito--user-pool-client
+      DefaultRedirectURI: !Sub ${OauthRedicrectUrl}/oauth/login
+      LogoutURLs:
+        - !Sub ${OauthRedicrectUrl}/oauth/logout
+        - http://localhost:3000/oauth/logout
+      RefreshTokenValidity: 7
+      SupportedIdentityProviders:
+        - Google
+      UserPoolId: !Ref UserPool
+
+  UserPoolTokenClientDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Ref CognitoDomainName
+      CustomDomainConfig:
+        CertificateArn: !Ref OauthSslCertArn
+
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties: 
+      AttributeMapping:
+        email: "email"
+        picture: "picture"
+        name: "name"
+      ProviderDetails:
+        client_id: !Ref OauthGoogleClientId
+        client_secret: !Ref OauthGoogleClientSecret
+        authorize_scopes: "https://www.googleapis.com/auth/user.emails.read https://www.googleapis.com/auth/user.phonenumbers.read https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
+      ProviderName: Google
+      ProviderType: Google
+      UserPoolId: !Ref UserPool

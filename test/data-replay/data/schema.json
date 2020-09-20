@@ -1,0 +1,27 @@
+{
+    "AttributeDefinitions": [
+        {
+            "AttributeName": "PK",
+            "AttributeType": "S"
+        },
+        {
+            "AttributeName": "SK",
+            "AttributeType": "S"
+        }
+    ],
+    "ProvisionedThroughput": {
+        "WriteCapacityUnits": 1,
+        "ReadCapacityUnits": 1
+    },
+    "TableName": "gierkinet-dev-dynamodb-main",
+    "KeySchema": [
+        {
+            "KeyType": "HASH",
+            "AttributeName": "PK"
+        },
+        {
+            "KeyType": "RANGE",
+            "AttributeName": "SK"
+        }
+    ]
+}

@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  devtales-gierkinet-api
+
+  SAM Template for devtales-gierkinet-api
+
+Globals:
+  Function:
+    Timeout: 5
+
+Parameters:
+  Environment:
+    Type: String
+    Description: "test/prod etc"
+    Default: "prod"
+  Product:
+    Type: String
+    Description: "Name of the Product"
+    Default: "gierkinet"
+  ApiDomainName:
+    Type: String
+    Default: gamesapi.devtales.net
+  MainCertificate:
+    Type: String
+    Description: AcmCertificateArn
+  HostedZoneId:
+    Type: String
+
+Resources:
+  Apis:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        Authorizers:
+          OAuth2Authorizer:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: "https://login.devtales.net"
+              audience:
+                - devtales
+      CorsConfiguration:
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - GET
+          - HEAD
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowOrigins:
+          - "*"
+      StageName: !Ref Environment
+      DefaultRouteSettings:
+        DetailedMetricsEnabled: true
+
+  RequestGuestIdentityTokenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cmd/request-guest-identity-token/
+      Handler: request-guest-identity-token
+      Runtime: go1.x
+      Events:
+        Request:
+          Type: HttpApi
+          Properties:
+            Path: /user/guest-identity-token
+            Method: POST
+            ApiId: !Ref Apis
+      Environment:
+        Variables:
+          PRODUCT: !Ref Product
+          ENVIRONMENT: !Ref Environment
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Sub "${Product}-${Environment}-dynamodb-main"
+
+
+  RequestAuthenticatedIdentityTokenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cmd/request-authenticated-identity-token/
+      Handler: request-authenticated-identity-token
+      Runtime: go1.x
+      Events:
+        Request:
+          Type: HttpApi
+          Properties:
+            Path: /user/authenticated-identity-token
+            Method: POST
+            ApiId: !Ref Apis
+      Environment:
+        Variables:
+          PRODUCT: !Ref Product
+          ENVIRONMENT: !Ref Environment
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Sub "${Product}-${Environment}-dynamodb-main"
+
+  ApiDistribution:
+    Type: AWS::CloudFront::Distribution
+    DeletionPolicy: Retain
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        IPV6Enabled: true
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        Aliases: [!Ref ApiDomainName]
+        ViewerCertificate:
+          AcmCertificateArn:
+            !Ref MainCertificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.1_2016
+        Origins:
+          - Id: APIOrigin
+            DomainName: !Sub "${Apis}.execute-api.${AWS::Region}.amazonaws.com"
+            OriginPath: !Sub /${Environment}
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.1
+                - TLSv1.2
+        DefaultCacheBehavior:
+          AllowedMethods: ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+          CachedMethods: ["GET", "HEAD", "OPTIONS"]
+          Compress: true
+          DefaultTTL: 31536000
+          MinTTL: 31536000
+          MaxTTL: 31536000
+          ForwardedValues:
+            Headers:
+              - Access-Control-Request-Headers
+              - Access-Control-Request-Method
+              - Origin
+              - Authorization
+            QueryString: true
+          TargetOriginId: APIOrigin
+          ViewerProtocolPolicy: redirect-to-https
+
+  DNS:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId:
+        !Ref HostedZoneId
+      RecordSets:
+        - Name: !Ref ApiDomainName
+          Type: A
+          AliasTarget:
+            HostedZoneId: Z2FDTNDATAQYW2 # This is always the hosted zone ID when you create an alias record that routes traffic to a CloudFront distribution
+            DNSName: !GetAtt ApiDistribution.DomainName

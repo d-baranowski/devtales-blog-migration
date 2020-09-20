@@ -1,0 +1,124 @@
+@import "variables";
+
+$position-left: 0;
+$position-right: 0;
+
+#logo {
+  height: 200px;
+  position: absolute;
+  top: 20px;
+  left: $position-left;
+  z-index: 11;
+}
+
+h2 {
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.125;
+}
+
+nav {
+  border-radius: 2px;
+  height: 50px;
+  font-family: 'Oswald', sans-serif;
+  font-size: 1.2em;
+  position: absolute;
+  top: $navbar-position;
+  left: 120px;
+  right: $position-right;
+  z-index: 10;
+  background-color: #444;
+  border-bottom: 5px #F8CC46 solid;
+
+  #title {
+    margin-left: 150px;
+  }
+
+  responsivenav {
+    li.active {
+      a {
+        background-color: #fff;
+        color: #444;
+        cursor: default;
+      }
+    }
+
+    a {
+      text-decoration: none;
+      color: #fff;
+      display: block;
+      transition: .3s background-color;
+
+      &:hover {
+        background-color: $circuit-green;
+      }
+    }
+
+    ul {
+      float: right;
+      list-style: none;
+      text-align: center;
+      padding: 0;
+      margin: 0 0 0 0;
+
+      li {
+        width: 150px;
+        height: 50px;
+        line-height: 50px;
+        font-size: 1.4em;
+        display: inline-block;
+      }
+    }
+  }
+}
+
+@media screen and (max-width: $media-small), (device-width: $media-small) {
+  #logo {
+    display: none;
+  }
+
+  nav {
+    position: fixed;
+    left:0;
+    right: 0;
+    top: 0;
+    height: 60px;
+
+    #title {
+      margin-left: 10px;
+    }
+
+    responsivenav {
+      $responsive-nav-width: 250px;
+
+      display: block;
+      position: fixed;
+      top:60px;
+      left:0;
+      width: $responsive-nav-width;
+      height: 100%;
+      margin:0 0 0 -250px;
+      transition:all 200ms ease-in;
+
+      &.open {
+        margin: 0;
+      }
+
+      ul {
+        width: $responsive-nav-width;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+        background: $navbar-gray;
+        opacity: 0.8;
+        overflow: hidden;
+
+        li{
+          margin:0;
+          width: 100%;
+        }
+      }
+    }
+  }
+}

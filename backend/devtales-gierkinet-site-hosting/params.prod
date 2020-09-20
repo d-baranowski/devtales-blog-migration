@@ -1,0 +1,5 @@
+MainCertificate=arn:aws:acm:us-east-1:277265293752:certificate/82134b79-2682-4692-a0fe-032ce2039fef
+HostedZoneId=Z13R6A0CNE6JRZ
+CognitoCloudfrontDistribution=d3mbj654qfa6co.cloudfront.net
+Environment=prod
+Product=gierkinet

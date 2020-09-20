@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  devtales-gierkinet-site-hosting
+  
+  Sample SAM Template for devtales-gierkinet-site-hosting
+
+
+Parameters:
+  Environment:
+    Type: String
+    Description: "test/prod etc"
+    Default: "prod"
+  Product:
+    Type: String
+    Description: "Name of the Product"
+    Default: "gierkinet"
+  WebDomainName:
+    Type: String
+    Description: "Domain name of the site"
+    Default: "games.devtales.net"
+  LoginDomainName:
+    Type: String
+    Description: "Domain name of the site"
+    Default: "login.devtales.net"
+  MainCertificate: 
+    Type: String
+    Description: AcmCertificateArn
+  HostedZoneId:
+    Type: String
+  CognitoCloudfrontDistribution:
+    Type: String
+    Description: Created as part of devtales-gierkinet-auth stack 
+
+
+Resources:
+  ClientBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Product}-${Environment}-s3-client
+      WebsiteConfiguration:
+        ErrorDocument: index.html
+        IndexDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  CloudfrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub ${Product}-${Environment}-oai-s3-content
+
+  CloudfrontS3PolicyUpdateLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: arn:aws:sns:us-east-1:806199016981:AmazonIpSpaceChanged #AmazonIpSpaceChangedSnsArn
+      FunctionName: !GetAtt CloudfrontS3PolicyUpdateLambda.Arn
+
+  CloudfrontS3PolicyUpdateLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          Action:
+            - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+              - lambda.amazonaws.com
+      Policies:
+        - PolicyName: AllowUpdateBucketPolicies
+          PolicyDocument:
+            Statement:
+              - Action:
+                  - s3:PutBucketPolicy
+                Resource:
+                  - !GetAtt ClientBucket.Arn
+                Effect: Allow
+        - PolicyName: AllowSubscribeSns
+          PolicyDocument:
+            Statement:
+              - Action:
+                  - sns:GetSubscriptionAttributes
+                  - sns:Subscribe
+                Resource: "*"
+                Effect: Allow
+        - PolicyName: AllowLogs
+          PolicyDocument:
+            Statement:
+              - Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+                Effect: Allow
+
+  CloudfrontS3PolicyUpdateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Environment:
+        Variables:
+          CLIENT_BUCKET_NAME: !Ref ClientBucket
+      FunctionName: !Sub ${AWS::StackName}-CloudfrontS3PolicyUpdateFunction
+      Runtime: python3.7
+      Role: !GetAtt CloudfrontS3PolicyUpdateLambdaExecutionRole.Arn
+      Timeout: 10
+      Code:
+        ZipFile: |
+          import boto3
+          import hashlib
+          import json
+          import os
+          from urllib.request import urlopen
+
+          SERVICE = "CLOUDFRONT"
+
+          def lambda_handler(event, context):
+              print("Received event: " + json.dumps(event, indent=2))
+              message = json.loads(event['Records'][0]['Sns']['Message'])
+
+              ip_ranges = json.loads(get_ip_groups_json(message['url'], message['md5']))
+
+              global_cf_ranges = get_ranges_for_service(ip_ranges, SERVICE, "GLOBAL")
+              region_cf_ranges = get_ranges_for_service(ip_ranges, SERVICE, "REGION")
+              combined_cf_ranges = global_cf_ranges + region_cf_ranges
+
+              buckets = [
+                  os.environ.get('CLIENT_BUCKET_NAME')
+              ]
+
+              for bucket in buckets:
+                  update_bucket_policy(combined_cf_ranges, bucket)
+
+          def get_ip_groups_json(url, expected_hash):
+              print("Updating from " + url)
+
+              response = urlopen(url)
+              ip_json = response.read()
+
+              m = hashlib.md5()
+              m.update(ip_json)
+              hash = m.hexdigest()
+
+              if hash != expected_hash:
+                  raise Exception('MD5 Mismatch: got ' + hash + ' expected ' + expected_hash)
+
+              return ip_json
+
+          def get_ranges_for_service(ranges, service, subset):
+              service_ranges = list()
+              for prefix in ranges['prefixes']:
+                  if prefix['service'] == service and ((subset == prefix['region'] and subset == "GLOBAL") or (subset != 'GLOBAL' and prefix['region'] != 'GLOBAL')):
+                      print('Found ' + service + ' region: ' + prefix['region'] + ' range: ' + prefix['ip_prefix'])
+                      service_ranges.append(prefix['ip_prefix'])
+
+              return service_ranges
+
+          def update_bucket_policy(ip_range, bucket):
+              s3 = boto3.resource('s3')
+
+              new_policy = generate_policy(ip_range, bucket)
+              s3.BucketPolicy(bucket).put(False, Policy=new_policy)
+
+          def generate_policy(ip_range, bucket):
+              resource = "arn:aws:s3:::{}/*".format(bucket)
+
+              policy = {
+                  "Version": "2008-10-17",
+                  "Id": "PolicyForCloudFrontPrivateContent",
+                  "Statement": [
+                      {
+                          "Sid": "1",
+                          "Effect": "Allow",
+                          "Principal": "*",
+                          "Action": "s3:GetObject",
+                          "Resource": resource,
+                          "Condition": {
+                              "IpAddress": {"aws:SourceIp": ip_range}
+                          }
+                      }
+                  ]
+              }
+
+              return json.dumps(policy)
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    DeletionPolicy: Retain
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        IPV6Enabled: true
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        Aliases: [!Ref WebDomainName]
+        ViewerCertificate:
+          AcmCertificateArn:
+            !Ref MainCertificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.1_2016
+        Origins:
+          - Id: ClientOrigin
+            DomainName:
+              !Select [2, !Split ["/", !GetAtt ClientBucket.WebsiteURL]]
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          AllowedMethods: ["GET", "HEAD"]
+          Compress: true
+          DefaultTTL: 31536000
+          MinTTL: 31536000
+          MaxTTL: 31536000
+          ForwardedValues:
+            Cookies:
+              Forward: none
+            QueryString: true
+          TargetOriginId: ClientOrigin
+          ViewerProtocolPolicy: redirect-to-https
+        CustomErrorResponses:
+          - ErrorCachingMinTTL: 0
+            ErrorCode: 400
+          - ErrorCachingMinTTL: 0
+            ErrorCode: 403
+          - ErrorCachingMinTTL: 0
+            ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCachingMinTTL: 0
+            ErrorCode: 500
+
+  DNS:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId:
+        !Ref HostedZoneId
+      RecordSets:
+      - Name: !Ref LoginDomainName
+        Type: A
+        AliasTarget:
+          HostedZoneId: Z2FDTNDATAQYW2 # This is always the hosted zone ID when you create an alias record that routes traffic to a CloudFront distribution
+          DNSName: !Ref CognitoCloudfrontDistribution
+      - Name: !Ref WebDomainName
+        Type: A
+        AliasTarget:
+          HostedZoneId: Z2FDTNDATAQYW2 # This is always the hosted zone ID when you create an alias record that routes traffic to a CloudFront distribution
+          DNSName:
+            !GetAtt WebDistribution.DomainName

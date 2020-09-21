@@ -1,5 +1,5 @@
 import axios from "axios";
-import {ArticleSummarised} from "./Model";
+import {Article, ArticleSummarised} from "./Model";
 import {createAsyncThunk, createSelector, createSlice, SerializedError} from "@reduxjs/toolkit";
 import {RootState} from "src/store/rootReducer";
 
@@ -24,6 +24,13 @@ const getAllArticlesThunk = createAsyncThunk(
     }
 );
 
+const getSpecificArticleThunk = createAsyncThunk(
+    'article/getSpecific',
+    (slug: string) => {
+        return axios.get<Article>(`/article/${slug}.md`)
+    }
+);
+
 const articlesSlice = createSlice({
     name: 'articles',
     initialState,
@@ -34,6 +41,7 @@ const articlesSlice = createSlice({
         }
     },
     extraReducers: builder => {
+        // TODO add cases for get specific thunk
         builder.addCase(getAllArticlesThunk.pending, (state) => {
             state.loading = true;
             state.error = initialState.error;
@@ -62,6 +70,6 @@ export const selectArticles = createSelector(
     (todo) => todo
 );
 
-export const actions = {...articlesSlice.actions, getAllArticlesThunk};
+export const actions = {...articlesSlice.actions, getAllArticlesThunk, getSpecificArticleThunk};
 
 export default articlesSlice.reducer;

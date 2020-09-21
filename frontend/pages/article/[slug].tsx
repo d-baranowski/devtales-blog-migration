@@ -1,6 +1,8 @@
 import React, {Component} from 'react';
 import {connect} from 'react-redux';
-import {ArticleReader} from './ArticleReader';
+import {ArticleReader} from "../../src/feature/articles/ArticleReader";
+import {actions} from "../../src/feature/articles/articlesSlice";
+import {NextRouter} from "next/router";
 
 type LoadingType = "Loading" | "Loaded" | "Will-Load";
 
@@ -18,54 +20,55 @@ interface ArticleType {
 
 interface Props {
     articles: ArticleType[];
-    match: { // Injected by router
-        params: {
-            articleSlug: string;
-        };
-    };
     fetchArticle: (slug: string) => void;
+    router: NextRouter;
 }
 
 const mapStateToProps = (state) => {
     return {
-        articles: state.ArticleReducer.articles || []
+        articles: state.articles.articles || []
     };
 };
 
 const mapDispatchToProps = (dispatch) => {
     return({
-        fetchArticle: (slug) =>{ dispatch({type: 'ARTICLE_GET_SPECIFIC', slug}); }
+        fetchArticle: (slug) =>{ dispatch(actions.getSpecificArticleThunk(slug)); }
     });
 };
 
-export const ArticleReaderContainer = connect(mapStateToProps, mapDispatchToProps)(class ArticleReaderContainer extends Component<Props> {
+const ArticleReaderContainer = connect(mapStateToProps, mapDispatchToProps)(class ArticleReaderContainer extends Component<Props> {
     getArticle() {
-        const slug = this.props.match.params.articleSlug;
+        const slug: string = this.props.router.query.slug as string;
+
+        if (typeof window === 'undefined') {
+            return this.props.articles[slug]
+        }
+
         const localStorageArticle = localStorage.getItem(slug);
         let article;
 
         if (localStorageArticle) {
             article = JSON.parse(localStorageArticle)
         } else {
-            article =this.props.articles[slug]
+            article = this.props.articles[slug]
         }
 
-        console.log(article);
         return article;
     }
 
     componentDidMount() {
         if (!this.getArticle()) {
-            this.props.fetchArticle(this.props.match.params.articleSlug);
+            const slug: string = this.props.router.query.slug as string;
+            this.props.fetchArticle(slug);
         }
     }
 
     render() {
-        const slug: string = this.props.match.params.articleSlug;
         const article: ArticleType = this.getArticle();
 
         return <ArticleReader
-            slug={slug}
             article={article}/>;
     }
 });
+
+export default ArticleReaderContainer;
